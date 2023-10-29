@@ -1,6 +1,8 @@
 import numpy as np
 import cv2
-from objlabels import labelNode, labelTable
+from utils.objlabels import labelNode, labelTable
+import matplotlib.pyplot as plt
+import time
 
 def get_object(img):
     # Sequential labeling algorithm
@@ -51,19 +53,20 @@ def get_object(img):
 
     return label_table
 
-def apply_scanline(img, line_num, angle, tilt=None, resolution=1000):
+def apply_scanline(img, line_num, angle, resolution=1000):
     # apply equidistant scanline in img size with given angle
     # img: input image
     # line_num: number of scanlines
     # angle: angle of scanlines (degree)
 
+    # current_time = time.time()
     H, W = img.shape
     midpoint = ((W-1)/2, (H-1)/2)
     angle = np.deg2rad(angle)
     # y = tan(angle) * (x-a) + b
     diag_angle = (np.arctan2(H, W), np.arctan2(-H, W))
     # equidistant points on main line
-    if np.tan(angle) <= diag_angle[0] and np.tan(angle) >= diag_angle[1]:
+    if angle <= diag_angle[0] and angle >= diag_angle[1]:
         # ends of main line are lies on the left and right side of image
         x = np.linspace(0, W-1, line_num)
         y = np.tan(angle) * (x - midpoint[0]) + midpoint[1]
@@ -73,44 +76,39 @@ def apply_scanline(img, line_num, angle, tilt=None, resolution=1000):
         x = (y - midpoint[1]) / np.tan(angle) + midpoint[0]
 
     lines = []
+    angle_ = angle - np.pi/2
     for x_, y_ in zip(x, y):
         px_val = []
         # y = tan(angle) * (x-a) + b
         # a is x_, b is y_, angle is angle-(pi/2)
-        angle_ = angle - np.pi/2
-        if np.tan(angle_) <= diag_angle[0] and np.tan(angle_) >= diag_angle[1]:
-            for i in np.linspace(0, W-1, resolution):
-                j = np.tan(angle_) * (i-x_) + y_
-                if i < 0 or i >= W or j < 0 or j >= H:
-                    continue
-                px_val.append(img[int(j), int(i)])
-            lines.append(px_val)
+        if angle_ <= diag_angle[0] and angle_ >= diag_angle[1]:
+            i_vals = np.linspace(0, W - 1, resolution)
+            j_vals = np.tan(angle_) * (i_vals - x_) + y_
+            mask = (i_vals >= 0) & (i_vals <= W-1) & (j_vals >= 0) & (j_vals <= H-1)
 
         else:
-            for j in np.linspace(0, H-1, resolution):
-                i = (j-y_) / np.tan(angle_) + x_
-                if i < 0 or i >= W or j < 0 or j >= H:
-                    continue
-                px_val.append(img[int(j), int(i)])
+            j_vals = np.linspace(0, H - 1, resolution)
+            i_vals = (j_vals - y_) / np.tan(angle_) + x_
+            mask = (i_vals >= 0) & (i_vals <= W-1) & (j_vals >= 0) & (j_vals <= H-1)
+        
+        indices = j_vals[mask].astype(int), i_vals[mask].astype(int)
+        px_val = img[indices]
+        lines.append(px_val)
 
-            # tilt correction
-            
-            px_val_tilt = []
-            if tilt is None:
-                px_val_tilt = px_val
+    # time_last = time.time()-current_time
+    # print('scanline time: ', time_last)
 
-            elif tilt >= 0:
-                correction_table = np.linspace(0, tilt, len(px_val))
-                for i in range(len(px_val)):
-                    px_val_tilt.extend([px_val[i]] * (1+int(correction_table[i])))
-            
-            elif tilt < 0:
-                correction_table = np.linspace(tilt, 0, len(px_val))
-                for i in range(len(px_val)):
-                    px_val_tilt.extend([px_val[i]] * (1+int(correction_table[i])))
-            
-            lines.append(px_val)
     return x,y,lines
+
+def plot_scanline(img, x, y, angle):
+    for x_, y_ in zip(x, y):
+        xx = np.linspace(0, img.shape[1], 100)
+        yy = y_ + (xx - x_) * np.tan((angle-90) / 180 * np.pi)
+        plt.plot(xx, yy, c="r")
+    plt.imshow(img, cmap="gray")
+    plt.show()
+
+
 
 def is_in_interval(obj, n, tolerance):
     # check if obj is in interval n with tolerance

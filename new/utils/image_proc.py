@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
 import numpy as np
 import cv2
-import function as f
+import utils.function as f
 from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
@@ -246,7 +246,7 @@ def get_mass_center(f, a, b):
         area += f[i]
         area_tmp += i*f[i]
     
-    return area, area_tmp/area
+    return area, area_tmp/(area+1e-8)
 
 def bilinear_interpolation(image, y, x):
     height = image.shape[0]

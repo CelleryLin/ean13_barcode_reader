@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-import function as f
+import utils.function as f
 
 class EAN13DECODER():
     def __init__(self, barcode=None, tolerance=3, flip=False):
@@ -36,22 +36,12 @@ class EAN13DECODER():
         if len(peaks) < 1:
             raise DECODERERROR("cannot find peaks in the histogram")
 
-        # the highest 4 peaks
+        # the highest peak
         peaks.sort(key=lambda x: x['value'], reverse=True)
-        highest_peaks = peaks[:4]
-        highest_peaks = [i['index'] for i in highest_peaks]
+        highest_peak = peaks[0]['index']
 
-        # the foremost 4 peaks
-        peaks.sort(key=lambda x: x['index'])
-        foremost_peaks = peaks[:4]
-        foremost_peaks = [i['index'] for i in foremost_peaks]
-        
-        highest_peaks.sort()
-        foremost_peaks.sort()
-
-        # print(highest_peaks)
-        # print(foremost_peaks)
-        smallest_unit = highest_peaks[0] + self.torelance/2
+        # phase shift = (N-1) / (2*fs)
+        smallest_unit = highest_peak + self.torelance/2
         units = [smallest_unit, smallest_unit*2, smallest_unit*3, smallest_unit*4]
         # print(units)
         return units
@@ -79,8 +69,6 @@ class EAN13DECODER():
                 interval_count += 1
         intervals.append(interval_count)
         
-
-        
         if sort_interval:
             intervals.sort()
 
@@ -93,7 +81,7 @@ class EAN13DECODER():
             hist[int(i/self.torelance)] += 1
         # plt.plot(hist)
         # plt.show()
-        # find the first 4 peaks
+        # find the peaks
         peaks = []
         for i in range(1, len(hist)-1):
             # i/4 * 95 should no greater than pxlen (95 is the bar number of EAN13)
@@ -136,8 +124,6 @@ class EAN13DECODER():
         
         return intervals_new, content_new
 
-    # get_barcode using split the whole series into 95 bars
-    # a little bit un-toraleant
     def get_barcode(self, barcode=None):
 
         if barcode is None:
@@ -149,7 +135,10 @@ class EAN13DECODER():
             interv, cont = self.extend_0(interv, cont, th=1, ext=1.1)
             # interv, cont = self.shortent_0(interv, cont, th=1, ext=1)
             # self.plot_line_from_intev_and_cont(interv, cont)
-            if np.sum(interv) < 95:
+
+            # if np.sum(interv) < 95:
+            #     continue
+            if len(interv) != 59:
                 continue
             
             # start sign
@@ -195,6 +184,8 @@ class EAN13DECODER():
                     proc_barcode_half = np.zeros(42).astype(np.int8)
                     loss = 0
                     for k in range(len(bars)-1):
+                        if len(barcode_half[bars[k]:bars[k+1]]) == 0:
+                            continue
                         val = np.mean(barcode_half[bars[k]:bars[k+1]])
                         loss += (0.5 - np.abs(val - 0.5))
                         val = np.round(val).astype(np.int8)
@@ -228,70 +219,6 @@ class EAN13DECODER():
         # all of the possible barcode are not valid
         # return self.get_barcode_2(barcode)
         raise DECODERERROR("all of the possible barcode are not valid")
-
-    # get barcode but find start, middle and end sign first
-    def get_barcode_2(self, barcode=None):
-
-        if barcode is None:
-            barcode = self.barcode
-        
-        interval, content = self.barcode_locate(barcode)
-        
-        for interv, cont in zip(interval, content):
-            interv, cont = self.extend_0(interv, cont, th=0.8, ext=1.1)
-            # interv, cont = self.shortent_0(interv, cont, th=0.8, ext=1)
-            # self.plot_line_from_intev_and_cont(interv, cont)
-            if np.sum(interv) < 95:
-                continue
-            
-            # interv_acc = np.cumsum(interv)
-            length = np.sum(interv)
-            # bar_width = length / 95.
-            bars = np.linspace(0, length, 96)
-            bars = np.round(bars).astype(np.int16)
-            barcode = self.gen_code_from_intev_and_cont(interv, cont)
-            proc_barcode = np.zeros(95).astype(np.int8)
-            loss = 0
-            for i in range(len(bars)-1):
-                val = np.mean(barcode[bars[i]:bars[i+1]])
-                loss += (0.5 - np.abs(val - 0.5))
-                val = np.round(val).astype(np.int8)
-                proc_barcode[i] = val
-
-            # barcode_plot = np.tile(barcode, (30, 1))
-            # plt.imshow(barcode_plot, cmap='gray')
-            # plt.vlines(bars, 0, 30, colors='r', linewidth=1)
-            # plt.show()
-            # print(proc_barcode)
-            # print(loss)
-            
-            # start sign
-            if proc_barcode[:3].tolist() != [1,0,1]:
-                # print("start sign error")
-                continue
-
-            # middle sign
-            if proc_barcode[45:50].tolist() == [0,1,0,1,0]:
-                continue
-
-            # end sign
-            if proc_barcode[-3:].tolist() != [1,0,1]:
-                # print("end sign error")
-                continue
-            
-            print('find barcode!')
-            final_code = "".join([str(i) for i in proc_barcode])
-            
-            # print(final_code)
-            final_code_decoded = self.decode(final_code)
-            print(final_code)
-
-            return final_code, final_code_decoded, 'success'
-        
-
-        # all of the possible barcode are not valid
-        raise DECODERERROR("all of the possible barcode are not valid")
-
 
     def decode(self, barcode, recursion=False):
 
@@ -411,6 +338,8 @@ class EAN13DECODER():
 
         return interval, content
 
+
+# ean13 encoder
 def encoder():
     # read barcodes from txt
     barcodes = []
@@ -464,7 +393,6 @@ def encoder():
         print(proc_code)
 
 
-
 class DECODERERROR(Exception):
     def __init__(self, message='decoder error'):
         self.message = message
@@ -472,6 +400,7 @@ class DECODERERROR(Exception):
     def __str__(self):
         return self.message
     
+
 class DECODEDONE(Exception):
     def __init__(self, message='done!'):
         self.message = message
@@ -479,8 +408,10 @@ class DECODEDONE(Exception):
     def __str__(self):
         return self.message
 
+
 if __name__ == "__main__":
-    encoder()
+    pass
+    # encoder()
     # test = np.load('lines.npy', allow_pickle=True)[4]
     # test = np.array(test)
     # decoder = EAN13DECODER(test, tolerance=5)
