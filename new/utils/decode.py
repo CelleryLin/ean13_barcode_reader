@@ -6,9 +6,6 @@ if __name__ == "__main__":
 
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
-
-import utils.function as f
 
 class EAN13DECODER():
     def __init__(self, barcode=None, tolerance=3, flip=False):
@@ -28,8 +25,7 @@ class EAN13DECODER():
 
     def find_units(self):
         intervals, _ = self.get_intervals()
-        # sns.histplot(intervals)
-        # plt.show()
+
         # find the first 4 peaks in the histogram
         peaks = self.get_peaks(intervals)
         # print(peaks)
@@ -79,8 +75,7 @@ class EAN13DECODER():
         hist = np.zeros(max(intervals) + 1)
         for i in intervals:
             hist[int(i/self.torelance)] += 1
-        # plt.plot(hist)
-        # plt.show()
+
         # find the peaks
         peaks = []
         for i in range(1, len(hist)-1):
@@ -124,7 +119,7 @@ class EAN13DECODER():
         
         return intervals_new, content_new
 
-    def get_barcode(self, barcode=None):
+    def get_barcode_old(self, barcode=None):
 
         if barcode is None:
             barcode = self.barcode
@@ -133,11 +128,8 @@ class EAN13DECODER():
         
         for interv, cont in zip(interval, content):
             interv, cont = self.extend_0(interv, cont, th=1, ext=1.1)
-            # interv, cont = self.shortent_0(interv, cont, th=1, ext=1)
-            # self.plot_line_from_intev_and_cont(interv, cont)
 
-            # if np.sum(interv) < 95:
-            #     continue
+            # len is 59
             if len(interv) != 59:
                 continue
             
@@ -160,9 +152,6 @@ class EAN13DECODER():
             if not (np.array(interv[-3:]) < self.units[0]+self.torelance/2).all() or not (cont[-3:] == [1,0,1]):
                 # print("end sign error")
                 continue
-
-
-            # print(mid_position)
 
             for mid_pos in mid_position:
 
@@ -219,6 +208,74 @@ class EAN13DECODER():
         # all of the possible barcode are not valid
         # return self.get_barcode_2(barcode)
         raise DECODERERROR("all of the possible barcode are not valid")
+    
+    def get_barcode(self, barcode=None):
+        if barcode is None:
+            barcode = self.barcode
+        interval, content = self.barcode_locate(barcode)
+        for interv, cont in zip(interval, content):
+            interv, cont = self.extend_0(interv, cont, th=1, ext=1.1)
+            # interv, cont = self.shortent_0(interv, cont, th=1, ext=1)
+
+            # len must be 59
+            if len(interv) != 59:
+                continue
+            
+            # start sign
+            if not (np.array(interv[0:3]) < self.units[0]+self.torelance/2).all() or not (cont[0:3] == [1,0,1]):
+                # print("start sign error")
+                continue
+
+            # middle sign
+            if not (np.array(interv[27:32]) < self.units[0]+self.torelance/2).all() or not (cont[27:32] == [0,1,0,1,0]):
+                continue
+
+            # end sign
+            if not (np.array(interv[-3:]) < self.units[0]+self.torelance/2).all() or not (cont[-3:] == [1,0,1]):
+                # print("end sign error")
+                continue
+
+            proc_barcode = np.zeros(95).astype(np.int8)
+            proc_barcode[0:3] = [1,0,1]
+            proc_barcode[-3:] = [1,0,1]
+            proc_barcode[45:50] = [0,1,0,1,0]
+
+            interv_q = []
+            cont_q = []
+            ptr = [3, 7, 11, 15, 19, 23, 32, 36, 40, 44, 48, 52]
+            for i in ptr:
+                interv_q.append(interv[i:i+4])
+                cont_q.append(cont[i:i+4])
+
+            ptr = [3, 10, 17, 24, 31, 38, 50, 57, 64, 71, 78, 85]
+            for i in range(12):
+                length = np.sum(interv_q[i])
+                bars = np.linspace(0, length, 8)
+                bars = np.round(bars).astype(np.int16)
+                barcode_half = self.gen_code_from_intev_and_cont(interv_q[i], cont_q[i])
+                proc_barcode_half = np.zeros(7).astype(np.int8)
+                loss = 0
+                for k in range(len(bars)-1):
+                    if len(barcode_half[bars[k]:bars[k+1]]) == 0:
+                        continue
+                    val = np.mean(barcode_half[bars[k]:bars[k+1]])
+                    loss += (0.5 - np.abs(val - 0.5))
+                    val = np.round(val).astype(np.int8)
+                    proc_barcode_half[k] = val
+                proc_barcode[ptr[i]:ptr[i]+7] = proc_barcode_half
+
+            # print('find barcode!')
+            final_code = "".join([str(i) for i in proc_barcode])
+            
+            # print(final_code)
+            final_code_decoded = self.decode(final_code)
+
+            return final_code, final_code_decoded, 'success'
+        
+
+        # all of the possible barcode are not valid
+        raise DECODERERROR("all of the possible barcode are not valid")
+    
 
     def decode(self, barcode, recursion=False):
 
@@ -250,8 +307,6 @@ class EAN13DECODER():
 
         left_code = ''
         right_code = ''
-
-
 
         try:
             for i in left_side:
@@ -294,16 +349,11 @@ class EAN13DECODER():
 
 
         reversed_digits = digits[::-1]
-        odd_sum = sum(int(reversed_digits[i]) for i in range(0, len(reversed_digits), 2)) * 3
-        even_sum = sum(int(reversed_digits[i]) for i in range(1, len(reversed_digits), 2))
+        odd_sum = sum(int(reversed_digits[i]) for i in range(1, len(reversed_digits), 2)) * 3
+        even_sum = sum(int(reversed_digits[i]) for i in range(0, len(reversed_digits), 2))
         total = odd_sum + even_sum
-        check_digit = 10 - (total % 10)
 
-        if check_digit == 10:
-            check_digit = 0
-
-        return check_digit
-
+        return total % 10 == 0
 
     def gen_code_from_intev_and_cont(self, intervals, content):
         barcode = []
@@ -395,14 +445,6 @@ def encoder():
 
 class DECODERERROR(Exception):
     def __init__(self, message='decoder error'):
-        self.message = message
-
-    def __str__(self):
-        return self.message
-    
-
-class DECODEDONE(Exception):
-    def __init__(self, message='done!'):
         self.message = message
 
     def __str__(self):
